@@ -30,6 +30,7 @@ DB_PATH      = os.environ.get("DB_PATH", os.path.join(
 
 SESSION_STORE: dict[str, int] = {}   # token -> user_id  (in-memory)
 USE_PG = bool(DATABASE_URL)
+ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "changeme")
 
 # ──────────────────────────────────────────────
 #  Database layer  (SQLite ↔ PostgreSQL shim)
@@ -356,12 +357,16 @@ class Handler(http.server.BaseHTTPRequestHandler):
             f, ct = static[path]
             return self.serve_static(f, ct)
 
+        if path == "/admin":
+            return self.admin_page()
+
         apis = {
             "/api/me":        self.api_me,
             "/api/users":     self.api_users,
             "/api/stickers":  self.api_get_stickers,
             "/api/exchanges": self.api_exchanges,
             "/api/swaps":     self.api_get_swaps,
+            "/api/admin/codes": self.api_list_codes,
         }
         if path in apis:
             return apis[path]()
@@ -375,11 +380,12 @@ class Handler(http.server.BaseHTTPRequestHandler):
     def do_POST(self):
         path = urlparse(self.path).path
         apis = {
-            "/api/register": self.api_register,
-            "/api/login":    self.api_login,
-            "/api/logout":   self.api_logout,
-            "/api/stickers": self.api_add_stickers,
-            "/api/swaps":    self.api_propose_swap,
+            "/api/register":      self.api_register,
+            "/api/login":         self.api_login,
+            "/api/logout":        self.api_logout,
+            "/api/stickers":      self.api_add_stickers,
+            "/api/swaps":         self.api_propose_swap,
+            "/api/admin/generate": self.api_admin_generate,
         }
         if path in apis:
             return apis[path]()
@@ -776,6 +782,138 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 ON CONFLICT(user_id, number)
                 DO UPDATE SET quantity = quantity + 1
             """, (to_user, number))
+
+    # ── Admin ─────────────────────────────────
+    def _check_admin(self) -> bool:
+        b = self.read_body()
+        if b.get("password") == ADMIN_PASSWORD:
+            return True
+        self.send_error_json("Wrong admin password", 403)
+        return False
+
+    def admin_page(self):
+        html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width,initial-scale=1"/>
+  <title>Admin — Sticker Exchange</title>
+  <style>
+    *{{box-sizing:border-box;margin:0;padding:0}}
+    body{{font-family:system-ui,sans-serif;background:#0a0e1a;color:#e8eaf0;min-height:100vh;display:flex;align-items:center;justify-content:center;padding:24px}}
+    .card{{background:#1c2438;border:1px solid #2a3550;border-radius:12px;padding:32px;width:100%;max-width:500px;box-shadow:0 4px 24px rgba(0,0,0,.5)}}
+    h1{{font-size:1.4rem;margin-bottom:6px}}
+    p{{color:#7b8ab8;font-size:.9rem;margin-bottom:24px}}
+    label{{display:block;font-size:.85rem;color:#7b8ab8;margin-bottom:6px}}
+    input{{width:100%;padding:10px 14px;background:#141929;border:1px solid #2a3550;border-radius:8px;color:#e8eaf0;font-size:.95rem;outline:none;margin-bottom:14px}}
+    input:focus{{border-color:#4f9cf9}}
+    .row{{display:flex;gap:10px;align-items:flex-end;margin-bottom:14px}}
+    .row input{{margin-bottom:0}}
+    button{{padding:10px 22px;background:#4f9cf9;color:#fff;border:none;border-radius:8px;font-size:.95rem;font-weight:600;cursor:pointer}}
+    button:hover{{opacity:.85}}
+    #result{{margin-top:20px}}
+    .code-list{{background:#141929;border:1px solid #2a3550;border-radius:8px;padding:16px;font-family:monospace;font-size:.9rem;line-height:2}}
+    .code-item{{display:flex;justify-content:space-between;align-items:center;padding:4px 0;border-bottom:1px solid #2a3550}}
+    .code-item:last-child{{border-bottom:none}}
+    .used{{color:#7b8ab8;text-decoration:line-through}}
+    .fresh{{color:#34d399;font-weight:600}}
+    .alert{{padding:12px 16px;border-radius:8px;margin-bottom:12px;font-size:.9rem}}
+    .alert-error{{background:rgba(248,113,113,.15);border:1px solid rgba(248,113,113,.4);color:#f87171}}
+    .alert-success{{background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.35);color:#34d399}}
+    .copy-btn{{background:#2a3550;border:none;color:#e8eaf0;padding:4px 10px;border-radius:6px;cursor:pointer;font-size:.78rem}}
+    .copy-btn:hover{{background:#4f9cf9;color:#fff}}
+  </style>
+</head>
+<body>
+<div class="card">
+  <h1>⚽ Admin Panel</h1>
+  <p>Generate and view invite codes for FIFA 2026 Sticker Exchange</p>
+
+  <div id="alert"></div>
+
+  <label>Admin password</label>
+  <input type="password" id="pw" placeholder="Enter admin password" />
+
+  <label>Number of codes to generate</label>
+  <div class="row">
+    <input type="number" id="qty" value="10" min="1" max="100" style="max-width:120px"/>
+    <button onclick="generateCodes()">Generate codes</button>
+  </div>
+
+  <button onclick="listCodes()" style="background:#2a3550;margin-bottom:0">View all codes</button>
+
+  <div id="result"></div>
+</div>
+<script>
+async function generateCodes() {{
+  const pw  = document.getElementById('pw').value;
+  const qty = parseInt(document.getElementById('qty').value) || 10;
+  const res = await fetch('/api/admin/generate', {{
+    method: 'POST',
+    headers: {{'Content-Type':'application/json'}},
+    body: JSON.stringify({{password: pw, count: qty}})
+  }});
+  const data = await res.json();
+  if (!res.ok) return showAlert(data.error, 'error');
+  showAlert('✅ Generated ' + data.codes.length + ' new codes!', 'success');
+  showCodes(data.codes.map(c => ({{code:c, used:false}})));
+}}
+
+async function listCodes() {{
+  const pw = document.getElementById('pw').value;
+  const res = await fetch('/api/admin/codes', {{
+    headers: {{'X-Admin-Password': pw}}
+  }});
+  const data = await res.json();
+  if (!res.ok) return showAlert(data.error, 'error');
+  showCodes(data);
+}}
+
+function showCodes(list) {{
+  if (!list.length) {{
+    document.getElementById('result').innerHTML = '<p style="color:#7b8ab8;margin-top:16px">No codes yet.</p>';
+    return;
+  }}
+  const rows = list.map(c => {{
+    const cls = c.used ? 'used' : 'fresh';
+    const tag = c.used ? '(used)' : '<button class="copy-btn" onclick="navigator.clipboard.writeText(\'' + c.code + '\')">Copy</button>';
+    return '<div class="code-item"><span class="' + cls + '">' + c.code + '</span>' + tag + '</div>';
+  }}).join('');
+  document.getElementById('result').innerHTML = '<div class="code-list" style="margin-top:16px">' + rows + '</div>';
+}}
+
+function showAlert(msg, type) {{
+  document.getElementById('alert').innerHTML = '<div class="alert alert-' + type + '">' + msg + '</div>';
+}}
+</script>
+</body>
+</html>"""
+        data = html.encode()
+        self.send_response(200)
+        self.send_header("Content-Type", "text/html")
+        self.send_header("Content-Length", str(len(data)))
+        self.end_headers()
+        self.wfile.write(data)
+
+    def api_admin_generate(self):
+        b = self.read_body()
+        if b.get("password") != ADMIN_PASSWORD:
+            return self.send_error_json("Wrong admin password", 403)
+        count = min(int(b.get("count", 10)), 100)
+        codes = generate_codes(count)
+        self.send_json({"codes": codes})
+
+    def api_list_codes(self):
+        pw = self.headers.get("X-Admin-Password", "")
+        if pw != ADMIN_PASSWORD:
+            return self.send_error_json("Wrong admin password", 403)
+        conn = get_db()
+        try:
+            rows = fetch_all(conn,
+                "SELECT code, used_by FROM invite_codes ORDER BY code")
+        finally:
+            conn.close()
+        self.send_json([{"code": r["code"], "used": r["used_by"] is not None} for r in rows])
 
 
 # ──────────────────────────────────────────────
