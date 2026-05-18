@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>FIFA 2026 Sticker Exchange</title>
+  <link rel="stylesheet" href="/style.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚽</text></svg>" />
+</head>
+<body>
+<div id="app">
+
+  <!-- ── Header ── -->
+  <header id="header" style="display:none">
+    <div class="logo"><span>⚽</span> Sticker Exchange</div>
+    <nav>
+      <button class="active" data-page="collection" onclick="showPage('collection')">My Collection</button>
+      <button data-page="add" onclick="showPage('add')">Add Stickers</button>
+      <button data-page="exchanges" onclick="showPage('exchanges')">Find Swaps</button>
+      <button data-page="swaps" onclick="showPage('swaps')">
+        My Swaps <span id="badge-swaps" class="badge" style="display:none"></span>
+      </button>
+      <button data-page="friends" onclick="showPage('friends')">Friends</button>
+    </nav>
+    <div id="user-pill">—</div>
+    <button class="btn btn-ghost btn-sm" onclick="logout()">Sign out</button>
+  </header>
+
+  <main>
+
+    <!-- ════════════════════════════════
+         AUTH
+    ═════════════════════════════════ -->
+    <div id="page-auth">
+      <div class="auth-wrap">
+
+        <!-- LOGIN -->
+        <div id="auth-login" class="card">
+          <h2>👋 Welcome back!</h2>
+          <p>Sign in to manage your FIFA 2026 sticker collection</p>
+          <div id="login-alert"></div>
+          <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="login-username" placeholder="your_username" autocomplete="username" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="login-password" placeholder="••••••"
+                   onkeydown="if(event.key==='Enter') doLogin()" />
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="doLogin()">Sign in</button>
+          <div class="auth-toggle">Don't have an account? <a onclick="toggleAuth('register')">Register here</a></div>
+        </div>
+
+        <!-- REGISTER -->
+        <div id="auth-register" class="card" style="display:none">
+          <h2>🌍 Join the Exchange!</h2>
+          <p>You need an invite code from the group organiser to register.</p>
+          <div id="register-alert"></div>
+          <div class="form-group">
+            <label>Invite code</label>
+            <input type="text" id="reg-code" placeholder="e.g. K3MWP-9XQ2R"
+                   style="font-family:monospace;text-transform:uppercase;letter-spacing:.1em" />
+          </div>
+          <div class="form-group">
+            <label>Your name</label>
+            <input type="text" id="reg-name" placeholder="e.g. Lucas" />
+          </div>
+          <div class="form-group">
+            <label>Username</label>
+            <input type="text" id="reg-username" placeholder="e.g. lucas92" />
+          </div>
+          <div class="form-group">
+            <label>Password</label>
+            <input type="password" id="reg-password" placeholder="At least 4 characters"
+                   onkeydown="if(event.key==='Enter') doRegister()" />
+          </div>
+          <button class="btn btn-primary" style="width:100%" onclick="doRegister()">Create account</button>
+          <div class="auth-toggle">Already registered? <a onclick="toggleAuth('login')">Sign in</a></div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         COLLECTION
+    ═════════════════════════════════ -->
+    <div id="page-collection" style="display:none">
+      <div class="page-header">
+        <h2>⚽ My Collection</h2>
+        <button class="btn btn-ghost btn-sm" onclick="refreshCollection()">↻ Refresh</button>
+      </div>
+      <div class="stats-row">
+        <div class="stat-card"><div class="value" id="stat-unique">—</div><div class="label">Unique Stickers</div></div>
+        <div class="stat-card"><div class="value" id="stat-total">—</div><div class="label">Total (with dupes)</div></div>
+        <div class="stat-card"><div class="value" id="stat-dupes">—</div><div class="label">Duplicates</div></div>
+      </div>
+      <div class="tabs">
+        <button class="tab-btn active" onclick="switchCollectionTab('all',this)">All stickers</button>
+        <button class="tab-btn" onclick="switchCollectionTab('dupes',this)">Duplicates only</button>
+      </div>
+      <div id="collection-content">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         ADD STICKERS
+    ═════════════════════════════════ -->
+    <div id="page-add" style="display:none">
+      <div class="page-header"><h2>➕ Add Stickers</h2></div>
+      <div class="card" style="margin-bottom:24px">
+        <div class="mode-toggle">
+          <button class="mode-btn active" onclick="switchMode('single',this)">Single / Range</button>
+          <button class="mode-btn" onclick="switchMode('bulk',this)">Bulk paste</button>
+        </div>
+
+        <!-- single -->
+        <div id="mode-single">
+          <div id="add-alert"></div>
+          <div class="form-group">
+            <label>Sticker number(s)</label>
+            <div class="input-row">
+              <input type="text" id="sticker-input"
+                     placeholder="e.g. 42  or  10-20  or  1,5,9  or  42x3"
+                     onkeydown="if(event.key==='Enter') addStickers()" />
+              <button class="btn btn-success" onclick="addStickers()">Add</button>
+            </div>
+            <div class="hint">
+              Single: <code>42</code> · Range: <code>10-20</code> · List: <code>1,5,9</code> · Copies: <code>42x3</code>
+            </div>
+          </div>
+        </div>
+
+        <!-- bulk -->
+        <div id="mode-bulk" style="display:none">
+          <div id="bulk-alert"></div>
+          <div class="form-group">
+            <label>Paste a list of numbers</label>
+            <textarea id="bulk-input" placeholder="One per line, or comma/space separated:
+1
+2 3 4
+10, 11, 12
+42x3   ← 3 copies of #42"></textarea>
+          </div>
+          <button class="btn btn-success" onclick="addBulk()">Add all</button>
+        </div>
+      </div>
+      <div id="add-preview"></div>
+    </div>
+
+    <!-- ════════════════════════════════
+         FIND SWAPS (exchange suggestions)
+    ═════════════════════════════════ -->
+    <div id="page-exchanges" style="display:none">
+      <div class="page-header">
+        <h2>🔍 Find Swaps</h2>
+        <button class="btn btn-ghost btn-sm" onclick="refreshExchanges()">↻ Refresh</button>
+      </div>
+      <p style="color:var(--muted);font-size:.9rem;margin-bottom:22px">
+        Friends you can trade with, sorted by most stickers to swap.
+        Click <strong>Propose Swap</strong> to send them an offer.
+      </p>
+      <div id="exchanges-content">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         MY SWAPS
+    ═════════════════════════════════ -->
+    <div id="page-swaps" style="display:none">
+      <div class="page-header">
+        <h2>🤝 My Swaps</h2>
+        <button class="btn btn-ghost btn-sm" onclick="refreshSwaps()">↻ Refresh</button>
+      </div>
+      <div id="swaps-content">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- ════════════════════════════════
+         FRIENDS
+    ═════════════════════════════════ -->
+    <div id="page-friends" style="display:none">
+      <div class="page-header">
+        <h2>👥 All Friends</h2>
+        <button class="btn btn-ghost btn-sm" onclick="refreshFriends()">↻ Refresh</button>
+      </div>
+      <div id="friends-content">
+        <div class="empty-state"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+  </main>
+</div>
+<script src="/app.js"></script>
+</body>
+</html>
